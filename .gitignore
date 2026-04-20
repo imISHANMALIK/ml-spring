@@ -1,0 +1,27 @@
+# Data & results (generated at runtime)
+results/
+*.csv
+*.npy
+*.npz
+*.pkl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Archives & media
+*.zip
+WhatsApp*/
+
+# References
+references/
+
+# IDE
+.vscode/
+.idea/
