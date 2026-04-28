@@ -24,6 +24,7 @@ Usage:
     layerwise = model.encode_layerwise(test_patches)  # list of 6 arrays
 """
 
+from pyclbr import Class
 import numpy as np
 import torch
 import torch.nn as nn
