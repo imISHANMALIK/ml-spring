@@ -37,26 +37,30 @@ CONFIG = {
     # Data
     'patch_size': 20,
     'context_patches': 12,
-    
+
     # HMM
     'hmm_n_states': 3,
-    
+
     # Supervised baseline
     'supervised_epochs': 100,
     'supervised_lr': 1e-4,
     'supervised_batch_size': 32,
-    
+
     # TS2Vec
     'ts2vec_epochs': 200,
     'ts2vec_output_dims': 384,
-    
+
     # PatchTST
     'patchtst_epochs': 200,
     'patchtst_d_model': 384,
-    
+
+    # FinJEPA  (new contribution)
+    'finjepa_epochs': 200,
+    'finjepa_d_model': 384,
+
     # Device
     'device': 'auto',
-    
+
     # Output
     'results_dir': 'results',
 }
@@ -216,49 +220,109 @@ def main():
     
     # Save
     patchtst_model.save(results_dir / "patchtst_model.pt")
-    
+
     # ═══════════════════════════════════════════
-    # PHASE 6: Unified Evaluation
+    # PHASE 6: FinJEPA (Core Contribution)
     # ═══════════════════════════════════════════
     print("\n" + "█"*60)
-    print("PHASE 6: UNIFIED EVALUATION")
+    print("PHASE 6: FINJEPA — JOINT EMBEDDING PREDICTIVE ARCHITECTURE")
     print("█"*60)
-    
+
+    from finjepa import train_finjepa, extract_finjepa_representations
+
+    finjepa_model = train_finjepa(
+        train_patches,
+        d_model=CONFIG['finjepa_d_model'],
+        n_epochs=CONFIG['finjepa_epochs'],
+        device=device
+    )
+
+    finjepa_val_reprs  = extract_finjepa_representations(finjepa_model, val_patches)
+    finjepa_test_reprs = extract_finjepa_representations(finjepa_model, test_patches)
+
+    finjepa_model.save(results_dir / "finjepa_model.pt")
+
+    # ═══════════════════════════════════════════
+    # PHASE 7: Unified Evaluation (all models)
+    # ═══════════════════════════════════════════
+    print("\n" + "█"*60)
+    print("PHASE 7: UNIFIED EVALUATION")
+    print("█"*60)
+
     from evaluate import evaluate_all_models
-    
-    # Package all representations
+
     representations = {
-        'Supervised': {
-            'val': sup_val_reprs,
-            'test': sup_test_reprs,
-        },
-        'TS2Vec': {
-            'val': ts2vec_val_reprs,
-            'test': ts2vec_test_reprs,
-        },
-        'PatchTST': {
-            'val': patchtst_val_reprs,
-            'test': patchtst_test_reprs,
-        },
+        'Supervised': {'val': sup_val_reprs,      'test': sup_test_reprs},
+        'TS2Vec':     {'val': ts2vec_val_reprs,   'test': ts2vec_test_reprs},
+        'PatchTST':   {'val': patchtst_val_reprs, 'test': patchtst_test_reprs},
+        'FinJEPA':    {'val': finjepa_val_reprs,  'test': finjepa_test_reprs},
     }
-    
-    # Align forward returns with representation counts
-    # (TS2Vec and PatchTST produce fewer outputs due to context windowing)
-    
+
     all_results, results_df = evaluate_all_models(
         representations, labels,
         forward_returns=forward_returns,
         save_dir=results_dir
     )
-    
+
     # ═══════════════════════════════════════════
-    # Save everything
+    # PHASE 8: Layer-Wise Probing
+    # — extracts hidden states at every transformer layer and trains a
+    #   separate linear probe at each depth to make noise-filtering visible
+    # ═══════════════════════════════════════════
+    print("\n" + "█"*60)
+    print("PHASE 8: LAYER-WISE PROBING (FinJEPA vs PatchTST)")
+    print("█"*60)
+
+    from evaluate import evaluate_layerwise_comparison
+
+    val_labels_all  = labels['patch_labels']['val']
+    test_labels_all = labels['patch_labels']['test']
+
+    layerwise_results = evaluate_layerwise_comparison(
+        finjepa_model=finjepa_model,
+        patchtst_model=patchtst_model,
+        val_patches=val_patches,
+        test_patches=test_patches,
+        val_labels=val_labels_all,
+        test_labels=test_labels_all,
+        context_len=CONFIG['context_patches'],
+    )
+
+    # Persist layer-wise F1 tables
+    import pandas as pd
+    for model_name, layer_results in layerwise_results.items():
+        df_lw = pd.DataFrame(layer_results)
+        df_lw.to_csv(results_dir / f"layerwise_{model_name.lower()}.csv", index=False)
+        print(f"Saved {model_name} layerwise results → "
+              f"{results_dir}/layerwise_{model_name.lower()}.csv")
+
+    # ═══════════════════════════════════════════
+    # PHASE 9: Emergence Plot
+    # ═══════════════════════════════════════════
+    print("\n" + "█"*60)
+    print("PHASE 9: EMERGENCE PLOT")
+    print("█"*60)
+
+    from plot_emergence import plot_emergence
+
+    fig = plot_emergence(
+        finjepa_results=layerwise_results['FinJEPA'],
+        patchtst_results=layerwise_results['PatchTST'],
+        save_path=results_dir / "emergence_plot.pdf",
+        show=False,
+    )
+    # Also save a raster version for quick inspection
+    fig.savefig(results_dir / "emergence_plot.png", dpi=200,
+                bbox_inches='tight', facecolor="#FFFBF5")
+    print(f"Saved emergence plot → {results_dir}/emergence_plot.pdf / .png")
+
+    # ═══════════════════════════════════════════
+    # Save all representations
     # ═══════════════════════════════════════════
     print("\n" + "█"*60)
     print("SAVING RESULTS")
     print("█"*60)
-    
-    # Save representations for Mehul to compare with FinJEPA
+
     np.savez(
         results_dir / "all_representations.npz",
         sup_val=sup_val_reprs,
@@ -267,23 +331,23 @@ def main():
         ts2vec_test=ts2vec_test_reprs,
         patchtst_val=patchtst_val_reprs,
         patchtst_test=patchtst_test_reprs,
+        finjepa_val=finjepa_val_reprs,
+        finjepa_test=finjepa_test_reprs,
     )
-    
+
     results_df.to_csv(results_dir / "results_table.csv", index=False)
-    
+
     print(f"\n✅ All results saved to {results_dir}/")
-    print(f"\nFiles for Mehul:")
-    print(f"  1. {results_dir}/labels/hmm_patch_labels_val.npy")
-    print(f"  2. {results_dir}/labels/hmm_patch_labels_test.npy")
-    print(f"  3. {results_dir}/hmm_model.pkl")
-    print(f"  4. {results_dir}/all_representations.npz (for comparison)")
-    print(f"\nMehul should:")
-    print(f"  1. Load HMM labels from results/labels/")
-    print(f"  2. Extract FinJEPA representations (384-dim)")
-    print(f"  3. Run the same evaluate.py to compare")
-    
-    return all_results, results_df
+    print(f"\nKey outputs:")
+    print(f"  {results_dir}/emergence_plot.pdf   ← layer-wise F1 figure (publication)")
+    print(f"  {results_dir}/emergence_plot.png   ← raster preview")
+    print(f"  {results_dir}/layerwise_finjepa.csv   ← per-layer probe results")
+    print(f"  {results_dir}/layerwise_patchtst.csv")
+    print(f"  {results_dir}/results_table.csv    ← final evaluation table")
+    print(f"  {results_dir}/all_representations.npz")
+
+    return all_results, results_df, layerwise_results
 
 
 if __name__ == "__main__":
-    results, df = main()
+    results, df, layerwise = main()
