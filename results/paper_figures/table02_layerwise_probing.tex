@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Layer-wise linear probing results. A logistic regression probe is trained on each transformer layer's hidden state (val set) and evaluated on the test set. \textit{(synthetic placeholder)}}
+\label{tab:layerwise}
+\begin{tabular}{lccccc}
+\toprule
+Layer & FinJEPA F1 & FinJEPA Acc & PatchTST F1 & PatchTST Acc & $\Delta$F1 \\
+\midrule
+  1 & 0.4521 & 0.5132 & 0.3456 & 0.4123 & +0.1065 \\
+  2 & 0.5341 & 0.5946 & 0.4123 & 0.4865 & +0.1218 \\
+  3 & 0.6287 & 0.6757 & 0.4821 & 0.5405 & +0.1466 \\
+  4 & 0.6943 & 0.7162 & 0.5192 & 0.5541 & +0.1751 \\
+  5 & 0.7412 & 0.7568 & 0.5412 & 0.5676 & +0.2000 \\
+  \textbf{6} & \textbf{0.7841} & \textbf{0.7838} & \textbf{0.5583} & \textbf{0.5676} & \textbf{+0.2258} \\
+\bottomrule
+\end{tabular}
+\end{table}
