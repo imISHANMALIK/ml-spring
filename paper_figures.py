@@ -490,6 +490,8 @@ def fig06_results_table_visual(results_df, synthetic):
     display_df = results_df.copy()
 
     def _fmt(col, fmt=".4f"):
+        if col not in display_df.columns:
+            return
         def f(v):
             try:
                 return format(float(v), fmt)
@@ -1052,7 +1054,7 @@ def fig16_radar_chart(results_df, synthetic):
     print("[fig16] Radar chart")
 
     # Metrics to normalise to [0,1]: higher is better for all (invert MSE)
-    metric_cols = ["Regime F1", "Regime Accuracy", "Silhouette", "Sharpe"]
+    metric_cols = [c for c in ["Regime F1", "Regime Accuracy", "Silhouette", "Sharpe"] if c in results_df.columns]
 
     def _get_numeric(df, col):
         vals = {}
