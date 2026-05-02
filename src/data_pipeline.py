@@ -1,14 +1,13 @@
 """
 Data Pipeline for FinJEPA Project
 ==================================
-Downloads S&P 500 data, computes log returns, rolling z-score normalization,
+Downloads Dow 30 data, computes log returns, rolling z-score normalization,
 creates 20-day patches, and performs strict temporal splitting.
 
 Usage:
     from src.data_pipeline import load_and_preprocess, create_patch_datasets
     
     data = load_and_preprocess()
-    datasets = create_patch_datasets(data)
 """
 
 import numpy as np
@@ -25,7 +24,11 @@ warnings.filterwarnings('ignore')
 # ─────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────
-TICKER = "^GSPC"
+DOW_30 = [
+    "AAPL", "MSFT", "JPM", "V", "PG", "UNH", "JNJ", "HD", "CVX", "MRK", 
+    "KO", "CSCO", "MCD", "WMT", "CRM", "INTC", "VZ", "IBM", "WBA", "BA", 
+    "HON", "AMGN", "CAT", "NKE", "AXP", "DIS", "MMM", "TRV", "GS", "DOW"
+]
 START_DATE = "2000-01-01"
 END_DATE = "2024-12-31"
 
@@ -45,31 +48,34 @@ ROLLING_WINDOW = 252      # 1 trading year for z-score normalization
 # ─────────────────────────────────────────────
 # Data download and feature engineering
 # ─────────────────────────────────────────────
-def download_sp500(ticker=TICKER, start=START_DATE, end=END_DATE, cache_path=None):
-    """Download S&P 500 OHLCV data via yfinance.
+def download_ticker(ticker, start=START_DATE, end=END_DATE, cache_dir=None):
+    """Download OHLCV data via yfinance.
     
     Caches to disk to avoid re-downloading.
     """
-    if cache_path is None:
-        cache_path = Path(__file__).parent.parent / "results" / "sp500_raw.csv"
+    if cache_dir is None:
+        cache_dir = Path(__file__).parent.parent / "results" / "raw_data"
     
-    cache_path = Path(cache_path)
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"{ticker}_raw.csv"
     
     if cache_path.exists():
-        print(f"Loading cached data from {cache_path}")
         df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
         return df
     
     print(f"Downloading {ticker} from {start} to {end}...")
-    df = yf.download(ticker, start=start, end=end, auto_adjust=True)
+    df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
     
     # Flatten multi-level columns if present
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
-    
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
+        
+    if len(df) == 0:
+        print(f"Warning: No data for {ticker}")
+        return df
+        
     df.to_csv(cache_path)
-    print(f"Saved {len(df)} rows to {cache_path}")
     
     return df
 
@@ -80,6 +86,8 @@ def compute_log_returns(df):
     log_return_t = log(close_t / close_{t-1})
     """
     close = df['Close'].values.astype(np.float64)
+    # Handle zeros or negatives to avoid log issues
+    close = np.where(close <= 0, np.nan, close)
     log_returns = np.log(close[1:] / close[:-1])
     
     # Create DataFrame aligned with dates (drop first row since we lose one)
@@ -123,6 +131,9 @@ def create_patches(data, patch_size=PATCH_SIZE):
     valid_mask = ~np.isnan(data['z_return'].values)
     valid_data = data[valid_mask].copy()
     
+    if len(valid_data) < patch_size:
+        return np.array([]), np.array([]), []
+        
     n_days = len(valid_data)
     n_patches = n_days // patch_size
     
@@ -175,24 +186,21 @@ def temporal_split(patches, patch_dates,
     
     splits = {
         'train': {
-            'patches': patches[train_idx],
+            'patches': patches[train_idx] if len(train_idx) > 0 else np.array([]),
             'indices': train_idx,
             'dates': [patch_dates[i] for i in train_idx]
         },
         'val': {
-            'patches': patches[val_idx],
+            'patches': patches[val_idx] if len(val_idx) > 0 else np.array([]),
             'indices': val_idx,
             'dates': [patch_dates[i] for i in val_idx]
         },
         'test': {
-            'patches': patches[test_idx],
+            'patches': patches[test_idx] if len(test_idx) > 0 else np.array([]),
             'indices': test_idx,
             'dates': [patch_dates[i] for i in test_idx]
         }
     }
-    
-    print(f"Split sizes: Train={len(train_idx)} patches, "
-          f"Val={len(val_idx)} patches, Test={len(test_idx)} patches")
     
     return splits
 
@@ -278,62 +286,112 @@ class RegimeDataset(Dataset):
 # ─────────────────────────────────────────────
 # Main pipeline
 # ─────────────────────────────────────────────
-def load_and_preprocess(cache_path=None):
+def load_and_preprocess(cache_dir=None):
     """Full pipeline: download → log returns → z-score → patches → split.
     
     Returns:
         dict with keys:
-            'raw_df': original OHLCV DataFrame
-            'returns_df': DataFrame with log_return, z_return, close
             'patches': np.array (n_patches, patch_size)
-            'raw_patches': np.array (n_patches, patch_size) — un-normalized
             'patch_dates': list of (start, end) date tuples
             'splits': dict with train/val/test patches
             'daily_returns': dict with train/val/test daily log returns
     """
-    # 1. Download
-    raw_df = download_sp500(cache_path=cache_path)
+    all_train_patches = []
+    all_val_patches = []
+    all_test_patches = []
     
-    # 2. Log returns
-    returns_df = compute_log_returns(raw_df)
+    all_train_dates = []
+    all_val_dates = []
+    all_test_dates = []
     
-    # 3. Rolling z-score
-    returns_df['z_return'] = rolling_zscore(returns_df['log_return'].values)
+    daily_returns_train = []
+    daily_returns_val = []
+    daily_returns_test = []
     
-    # 4. Create patches
-    patches, raw_patches, patch_dates = create_patches(returns_df)
-    
-    # 5. Temporal split (patches)
-    splits = temporal_split(patches, patch_dates)
-    
-    # 6. Also split DAILY returns for HMM fitting
-    daily_returns = {}
     train_end = pd.Timestamp(TRAIN_END)
     val_start = pd.Timestamp(VAL_START)
     val_end = pd.Timestamp(VAL_END)
     test_start = pd.Timestamp(TEST_START)
     
-    valid_returns = returns_df.dropna(subset=['z_return'])
+    print(f"Processing {len(DOW_30)} tickers...")
     
-    daily_returns['train'] = valid_returns[valid_returns.index <= train_end]
-    daily_returns['val'] = valid_returns[
-        (valid_returns.index >= val_start) & (valid_returns.index <= val_end)
-    ]
-    daily_returns['test'] = valid_returns[valid_returns.index >= test_start]
+    for ticker in DOW_30:
+        # 1. Download
+        df = download_ticker(ticker, cache_dir=cache_dir)
+        if len(df) == 0:
+            continue
+            
+        # 2. Log returns
+        returns_df = compute_log_returns(df)
+        
+        # 3. Rolling z-score
+        returns_df['z_return'] = rolling_zscore(returns_df['log_return'].values)
+        
+        # 4. Create patches
+        patches, raw_patches, patch_dates = create_patches(returns_df)
+        if len(patches) == 0:
+            continue
+            
+        # 5. Temporal split (patches)
+        splits = temporal_split(patches, patch_dates)
+        
+        if len(splits['train']['patches']) > 0:
+            all_train_patches.append(splits['train']['patches'])
+            all_train_dates.extend(splits['train']['dates'])
+            
+        if len(splits['val']['patches']) > 0:
+            all_val_patches.append(splits['val']['patches'])
+            all_val_dates.extend(splits['val']['dates'])
+            
+        if len(splits['test']['patches']) > 0:
+            all_test_patches.append(splits['test']['patches'])
+            all_test_dates.extend(splits['test']['dates'])
+        
+        # 6. Also split DAILY returns for HMM fitting
+        valid_returns = returns_df.dropna(subset=['z_return'])
+        
+        daily_train = valid_returns[valid_returns.index <= train_end]
+        daily_val = valid_returns[(valid_returns.index >= val_start) & (valid_returns.index <= val_end)]
+        daily_test = valid_returns[valid_returns.index >= test_start]
+        
+        if len(daily_train) > 0:
+            daily_returns_train.append(daily_train)
+        if len(daily_val) > 0:
+            daily_returns_val.append(daily_val)
+        if len(daily_test) > 0:
+            daily_returns_test.append(daily_test)
+            
+    # Combine everything
+    final_train_patches = np.concatenate(all_train_patches, axis=0) if all_train_patches else np.array([])
+    final_val_patches = np.concatenate(all_val_patches, axis=0) if all_val_patches else np.array([])
+    final_test_patches = np.concatenate(all_test_patches, axis=0) if all_test_patches else np.array([])
     
-    print(f"\nDaily return counts: "
-          f"Train={len(daily_returns['train'])}, "
-          f"Val={len(daily_returns['val'])}, "
-          f"Test={len(daily_returns['test'])}")
+    master_splits = {
+        'train': {'patches': final_train_patches, 'dates': all_train_dates},
+        'val': {'patches': final_val_patches, 'dates': all_val_dates},
+        'test': {'patches': final_test_patches, 'dates': all_test_dates}
+    }
+    
+    # Combine all patches for full array if needed (rarely used now)
+    all_patches = np.concatenate([final_train_patches, final_val_patches, final_test_patches], axis=0)
+    all_dates = all_train_dates + all_val_dates + all_test_dates
+    
+    # Combine daily returns
+    master_daily = {
+        'train': pd.concat(daily_returns_train) if daily_returns_train else pd.DataFrame(),
+        'val': pd.concat(daily_returns_val) if daily_returns_val else pd.DataFrame(),
+        'test': pd.concat(daily_returns_test) if daily_returns_test else pd.DataFrame()
+    }
+    
+    print(f"\nCompleted Processing!")
+    print(f"Patches -> Train: {len(final_train_patches)}, Val: {len(final_val_patches)}, Test: {len(final_test_patches)}")
+    print(f"Daily returns -> Train: {len(master_daily['train'])}, Val: {len(master_daily['val'])}, Test: {len(master_daily['test'])}")
     
     return {
-        'raw_df': raw_df,
-        'returns_df': returns_df,
-        'patches': patches,
-        'raw_patches': raw_patches,
-        'patch_dates': patch_dates,
-        'splits': splits,
-        'daily_returns': daily_returns,
+        'patches': all_patches,
+        'patch_dates': all_dates,
+        'splits': master_splits,
+        'daily_returns': master_daily,
     }
 
 
@@ -360,8 +418,7 @@ if __name__ == "__main__":
     
     print(f"\nTotal patches: {len(data['patches'])}")
     print(f"Patch shape: {data['patches'].shape}")
-    print(f"Date range: {data['patch_dates'][0][0]} to {data['patch_dates'][-1][1]}")
     
     for split_name, split_data in data['splits'].items():
-        print(f"  {split_name}: {len(split_data['patches'])} patches, "
-              f"dates: {split_data['dates'][0][0].date()} to {split_data['dates'][-1][1].date()}")
+        if len(split_data['patches']) > 0:
+            print(f"  {split_name}: {len(split_data['patches'])} patches")
