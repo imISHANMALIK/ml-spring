@@ -68,7 +68,7 @@ def evaluate_model(model_name, val_reprs, test_reprs,
     test_scaled = scaler.transform(test_reprs)
 
     probe = LogisticRegression(
-        max_iter=2000, C=1.0, multi_class='multinomial',
+        max_iter=2000, C=1.0,
         solver='lbfgs', random_state=42
     )
     probe.fit(val_scaled, val_labels)
@@ -79,7 +79,9 @@ def evaluate_model(model_name, val_reprs, test_reprs,
     results['confusion_matrix'] = confusion_matrix(test_labels, test_preds)
     results['classification_report'] = classification_report(
         test_labels, test_preds,
-        target_names=['Bear', 'Sideways', 'Bull'], output_dict=True
+        labels=[0, 1, 2],
+        target_names=['Bear', 'Sideways', 'Bull'], output_dict=True,
+        zero_division=0
     )
 
     if HAS_UMAP and len(test_reprs) > 10:
@@ -188,7 +190,7 @@ def probe_layerwise(model_name: str,
         test_y = test_labels[-n_test:]
 
         probe = LogisticRegression(
-            max_iter=2000, C=1.0, multi_class='multinomial',
+            max_iter=2000, C=1.0,
             solver='lbfgs', random_state=42
         )
         probe.fit(val_scaled, val_y)

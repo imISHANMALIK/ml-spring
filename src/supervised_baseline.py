@@ -150,9 +150,13 @@ def train_supervised(model, train_dataset, val_dataset,
     labels = []
     for _, label in train_dataset:
         labels.append(label.item())
-    unique, counts = np.unique(labels, return_counts=True)
-    weights = 1.0 / counts
-    weights = weights / weights.sum() * len(unique)
+    
+    n_classes = model.classifier[-1].out_features
+    counts = np.bincount(labels, minlength=n_classes)
+    weights = np.zeros(n_classes, dtype=np.float32)
+    nonzero_mask = counts > 0
+    weights[nonzero_mask] = 1.0 / counts[nonzero_mask]
+    weights = weights / weights.sum() * nonzero_mask.sum()
     class_weights = torch.FloatTensor(weights).to(device)
     
     criterion = nn.CrossEntropyLoss(weight=class_weights)

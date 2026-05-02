@@ -155,18 +155,18 @@ def temporal_contrastive_loss(z1, z2):
     if seq_len <= 1:
         return torch.tensor(0., device=z1.device)
     
-    z = torch.cat([z1, z2], dim=1)  # (B, 2T, D)
-    z = z.reshape(-1, dim)  # (B*2T, D)
+    # Simplify by computing only for the first batch item's temporal structure
+    z1_single = z1[0]  # (T, D)
+    z2_single = z2[0]  # (T, D)
+    z = torch.cat([z1_single, z2_single], dim=0)  # (2T, D)
     
     z = F.normalize(z, dim=1)
     sim = torch.mm(z, z.t()) / 0.5
     
-    labels = torch.arange(batch_size * seq_len, device=z.device)
-    labels = torch.cat([labels + batch_size * seq_len, labels])
-    labels = labels.repeat(batch_size)  # Not exact but approximation
+    labels = torch.arange(seq_len, device=z.device)
+    labels = torch.cat([labels + seq_len, labels])
     
-    # Simplified — just use first batch item's temporal structure
-    loss = F.cross_entropy(sim[:2*seq_len, :2*seq_len], labels[:2*seq_len])
+    loss = F.cross_entropy(sim, labels)
     return loss
 
 
