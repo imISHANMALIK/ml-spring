@@ -2,7 +2,7 @@ import zipfile
 import os
 
 def create_zip():
-    with zipfile.ZipFile('finjepa_colab_v7_dow30.zip', 'w', zipfile.ZIP_DEFLATED) as zipf:
+    with zipfile.ZipFile('finjepa_colab_v8_dow_hmm_fix.zip', 'w', zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk('src'):
             for file in files:
                 zipf.write(os.path.join(root, file))
