@@ -125,3 +125,11 @@ def load_and_preprocess(cache_dir=None):
         'returns_df': valid_returns,
         'daily_returns': daily_splits,
     }
+
+def create_dataloaders(daily_returns_splits, batch_size=64, mode='jepa'):
+    loaders = {}
+    for split in ['train', 'val', 'test']:
+        z_returns = daily_returns_splits[split]['z_return'].values
+        ds = DensePatchSequenceDataset(z_returns, mode=mode)
+        loaders[split] = DataLoader(ds, batch_size=batch_size, shuffle=(split=='train'), drop_last=(split=='train'))
+    return loaders
