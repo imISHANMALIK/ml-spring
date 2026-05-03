@@ -255,10 +255,14 @@ class FinJEPAModel:
     @torch.no_grad()
     def _ema_update(self, batch_vol: float) -> float:
         """Adaptive EMA step. Returns the τ used this step."""
-        tau = self.tau_max - (self.tau_max - self.tau_min) * math.tanh(
-            self.vol_sensitivity * batch_vol
-        )
-        tau = float(np.clip(tau, self.tau_min, self.tau_max))
+        if self.tau_max == self.tau_min:
+            tau = self.tau_max
+        else:
+            tau = self.tau_max - (self.tau_max - self.tau_min) * math.tanh(
+                self.vol_sensitivity * batch_vol
+            )
+            tau = float(np.clip(tau, self.tau_min, self.tau_max))
+            
         self.current_tau = tau
 
         for p_c, p_t in zip(self.context_encoder.parameters(),
@@ -291,13 +295,13 @@ class FinJEPAModel:
         # (no negative samples in JEPA, so we explicitly penalise low std)
         var_reg = torch.relu(1.0 - ctx_repr.std(dim=0)).mean()
 
-        loss = pred_loss + 0.05 * var_reg
+        loss = pred_loss + 5.0 * var_reg  # Supercharged penalty to force distinct embeddings
         return loss, batch_vol
 
     # ── Training ─────────────────────────────────────────────────────────────
 
     def fit(self, train_loader, n_epochs: int = 200,
-            lr: float = 1e-4) -> 'FinJEPAModel':
+            lr: float = 1e-3) -> 'FinJEPAModel':
         """Pretrain FinJEPA with the JEPA objective."""
 
         # Only context encoder + predictor are trainable; target is EMA-only
@@ -398,11 +402,15 @@ class FinJEPAModel:
 # High-level API
 # ─────────────────────────────────────────────────────────────────────────────
 
-def train_finjepa(train_loader, d_model=384, n_epochs=200, device='auto'):
+def train_finjepa(train_loader, d_model=384, n_epochs=200, device='auto', tau_min=0.990, tau_max=0.999):
     model = FinJEPAModel(
         patch_size=20, context_len=12, target_len=4,
         d_model=d_model, n_heads=6, n_layers=6, device=device
     )
+    # Set EMA parameters based on ablation settings
+    model.tau_min = tau_min
+    model.tau_max = tau_max
+    
     model.fit(train_loader, n_epochs=n_epochs)
     return model
 

@@ -2,7 +2,10 @@
 Data Pipeline for FinJEPA Project
 ==================================
 Downloads S&P 500 data, computes log returns, rolling z-score normalization,
-and creates *Dense Sliding Windows* (stride=1 day) for massive data augmentation.
+and creates Sliding Windows with configurable stride for data augmentation.
+
+Stride=5 (one trading week) is the default: ~4x more data than non-overlapping
+patches, but low enough correlation to prevent representation collapse.
 """
 
 import numpy as np
@@ -27,6 +30,7 @@ PATCH_SIZE = 20
 CONTEXT_PATCHES = 12      
 TARGET_PATCHES = 4        
 ROLLING_WINDOW = 252      
+STRIDE = 5                # sliding window stride in days (5 = one trading week)
 
 def download_sp500(ticker=TICKER, start=START_DATE, end=END_DATE, cache_dir=None):
     if cache_dir is None:
@@ -72,15 +76,18 @@ def temporal_split(daily_df):
 
 class DensePatchSequenceDataset(Dataset):
     def __init__(self, daily_z_returns, patch_size=PATCH_SIZE, 
-                 context_len=CONTEXT_PATCHES, target_len=TARGET_PATCHES, mode='jepa'):
+                 context_len=CONTEXT_PATCHES, target_len=TARGET_PATCHES,
+                 stride=STRIDE, mode='jepa'):
         self.returns = torch.FloatTensor(daily_z_returns)
         self.patch_size = patch_size
         self.context_len = context_len
         self.target_len = target_len
         self.total_patches = context_len + target_len
         self.window_size = self.total_patches * patch_size
+        self.stride = stride
         self.mode = mode
-        self.n_samples = max(0, len(self.returns) - self.window_size + 1)
+        # Number of valid windows with given stride
+        self.n_samples = max(0, (len(self.returns) - self.window_size) // self.stride + 1)
     
     def __len__(self):
         return self.n_samples
@@ -88,7 +95,8 @@ class DensePatchSequenceDataset(Dataset):
     def __getitem__(self, idx):
         if idx >= self.n_samples or idx < 0:
             raise IndexError()
-        window = self.returns[idx : idx + self.window_size]
+        start = idx * self.stride
+        window = self.returns[start : start + self.window_size]
         patches = window.reshape(self.total_patches, self.patch_size)
         
         if self.mode == 'jepa':
@@ -98,13 +106,14 @@ class DensePatchSequenceDataset(Dataset):
 
 class DenseRegimeDataset(Dataset):
     def __init__(self, daily_z_returns, daily_labels, patch_size=PATCH_SIZE, 
-                 context_len=CONTEXT_PATCHES):
+                 context_len=CONTEXT_PATCHES, stride=STRIDE):
         self.returns = torch.FloatTensor(daily_z_returns)
         self.labels = torch.LongTensor(daily_labels)
         self.patch_size = patch_size
         self.context_len = context_len
+        self.stride = stride
         self.window_size = context_len * patch_size
-        self.n_samples = max(0, len(self.returns) - self.window_size + 1)
+        self.n_samples = max(0, (len(self.returns) - self.window_size) // self.stride + 1)
     
     def __len__(self):
         return self.n_samples
@@ -112,9 +121,10 @@ class DenseRegimeDataset(Dataset):
     def __getitem__(self, idx):
         if idx >= self.n_samples or idx < 0:
             raise IndexError()
-        window = self.returns[idx : idx + self.window_size]
+        start = idx * self.stride
+        window = self.returns[start : start + self.window_size]
         context = window.reshape(self.context_len, self.patch_size)
-        label = self.labels[idx + self.window_size - 1]
+        label = self.labels[start + self.window_size - 1]
         return context, label
 
 def load_and_preprocess(cache_dir=None):
