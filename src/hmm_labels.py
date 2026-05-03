@@ -179,13 +179,13 @@ class RegimeLabeler:
                 'daily_probs': {train, val, test} → np.array of probabilities
         """
         # Fit on training returns only
-        train_returns = pipeline_data['daily_returns']['train']['log_return'].values
+        train_returns = pipeline_data['daily_returns']['train']['z_return'].values
         self.fit(train_returns)
         
         result = {'daily_labels': {}, 'patch_labels': {}, 'daily_probs': {}}
         
         for split in ['train', 'val', 'test']:
-            returns = pipeline_data['daily_returns'][split]['log_return'].values
+            returns = pipeline_data['daily_returns'][split]['z_return'].values
             
             # Daily labels
             daily_labels = self.predict(returns)
@@ -282,16 +282,16 @@ def plot_regimes(pipeline_data, labels_data, save_path=None):
     
     # Panel 3: Daily returns colored by regime
     ax3 = axes[2]
-    ax3.set_title('Daily Returns by Regime', fontsize=12)
+    ax3.set_title('Normalized Daily Returns (Z-Scores) by Regime', fontsize=12)
     
     for regime in [0, 1, 2]:
         mask = combined['regime'] == regime
         dates = combined.index[mask]
-        returns = combined['log_return'][mask]
+        returns = combined['z_return'][mask]
         ax3.scatter(dates, returns, c=colors[regime], s=1, alpha=0.5)
     
     ax3.axhline(0, color='white', linewidth=0.5, alpha=0.3)
-    ax3.set_ylabel('Log Return')
+    ax3.set_ylabel('Z-Score')
     ax3.set_facecolor('#1a1a2e')
     ax3.grid(True, alpha=0.2)
     

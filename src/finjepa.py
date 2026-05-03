@@ -296,27 +296,9 @@ class FinJEPAModel:
 
     # ── Training ─────────────────────────────────────────────────────────────
 
-    def fit(self, train_patches: np.ndarray, n_epochs: int = 200,
-            lr: float = 1e-4, batch_size: int = 32) -> 'FinJEPAModel':
-        """Pretrain FinJEPA with the JEPA objective.
-
-        Args:
-            train_patches: (n_patches, patch_size) normalized returns
-        """
-        total_len = self.context_len + self.target_len
-        n = len(train_patches)
-
-        contexts = np.array([train_patches[i:i + self.context_len]
-                             for i in range(n - total_len + 1)])
-        targets  = np.array([train_patches[i + self.context_len:i + total_len]
-                             for i in range(n - total_len + 1)])
-
-        print(f"FinJEPA training data: {contexts.shape} context, {targets.shape} target")
-
-        loader = DataLoader(
-            TensorDataset(torch.FloatTensor(contexts), torch.FloatTensor(targets)),
-            batch_size=batch_size, shuffle=True, drop_last=True
-        )
+    def fit(self, train_loader, n_epochs: int = 200,
+            lr: float = 1e-4) -> 'FinJEPAModel':
+        """Pretrain FinJEPA with the JEPA objective."""
 
         # Only context encoder + predictor are trainable; target is EMA-only
         optimizer = torch.optim.AdamW(
@@ -333,7 +315,7 @@ class FinJEPAModel:
             self.predictor.train()
             losses, taus = [], []
 
-            for ctx_batch, tgt_batch in loader:
+            for ctx_batch, tgt_batch in train_loader:
                 ctx_batch = ctx_batch.to(self.device)
                 tgt_batch = tgt_batch.to(self.device)
 
@@ -362,49 +344,34 @@ class FinJEPAModel:
 
     # ── Inference helpers ────────────────────────────────────────────────────
 
-    def _make_windows(self, patches: np.ndarray) -> np.ndarray:
-        n = len(patches)
-        return np.array([patches[i:i + self.context_len]
-                         for i in range(n - self.context_len + 1)])
-
     @torch.no_grad()
-    def encode(self, patches: np.ndarray, batch_size: int = 64) -> np.ndarray:
-        """Final-layer global-average-pooled representations.
-
-        Returns: (n_windows, d_model)
-        """
+    def encode(self, loader) -> np.ndarray:
+        """Final-layer global-average-pooled representations."""
         self.context_encoder.eval()
-        windows = self._make_windows(patches)
-        loader  = DataLoader(TensorDataset(torch.FloatTensor(windows)),
-                             batch_size=batch_size, shuffle=False)
         reprs = []
-        for (x,) in loader:
+        for batch in loader:
+            if isinstance(batch, (list, tuple)):
+                x = batch[0]
+            else:
+                x = batch
             out = self.context_encoder(x.to(self.device)).mean(dim=1)
             reprs.append(out.cpu().numpy())
         return np.concatenate(reprs, axis=0)
 
     @torch.no_grad()
-    def encode_layerwise(self, patches: np.ndarray,
-                         batch_size: int = 64) -> list:
-        """Extract per-layer global-average-pooled representations.
-
-        Returns: list of n_layers np.arrays, each (n_windows, d_model).
-        Layer index 0 → Layer 1, ..., index 5 → Layer 6.
-        """
+    def encode_layerwise(self, loader) -> list:
+        """Extract per-layer global-average-pooled representations."""
         self.context_encoder.eval()
-        windows = self._make_windows(patches)
-        loader  = DataLoader(TensorDataset(torch.FloatTensor(windows)),
-                             batch_size=batch_size, shuffle=False)
-
-        # Accumulate per-layer outputs across batches
         layer_buckets = [[] for _ in range(self.n_layers)]
 
-        for (x,) in loader:
+        for batch in loader:
+            if isinstance(batch, (list, tuple)):
+                x = batch[0]
+            else:
+                x = batch
             x = x.to(self.device)
-            # hidden_states[i]: (B, context_len, d_model) at layer i+1
             hidden_states = self.context_encoder.forward_layerwise(x)
             for i, h in enumerate(hidden_states):
-                # Global average pool: (B, d_model)
                 layer_buckets[i].append(h.mean(dim=1).cpu().numpy())
 
         return [np.concatenate(b, axis=0) for b in layer_buckets]
@@ -431,22 +398,17 @@ class FinJEPAModel:
 # High-level API
 # ─────────────────────────────────────────────────────────────────────────────
 
-def train_finjepa(train_patches: np.ndarray, d_model: int = 384,
-                  n_epochs: int = 200, device: str = 'auto') -> FinJEPAModel:
+def train_finjepa(train_loader, d_model=384, n_epochs=200, device='auto'):
     model = FinJEPAModel(
-        patch_size=train_patches.shape[1],
-        d_model=d_model, n_heads=6, n_layers=6,
-        context_len=12, target_len=4,
-        device=device
+        patch_size=20, context_len=12, target_len=4,
+        d_model=d_model, n_heads=6, n_layers=6, device=device
     )
-    model.fit(train_patches, n_epochs=n_epochs,
-              batch_size=min(32, len(train_patches) // 2))
+    model.fit(train_loader, n_epochs=n_epochs)
     return model
 
 
-def extract_finjepa_representations(model: FinJEPAModel,
-                                    patches: np.ndarray) -> np.ndarray:
-    """Legacy single-vector API — returns final-layer pooled representations."""
-    reprs = model.encode(patches)
+def extract_finjepa_representations(model, loader, device='auto'):
+    """Legacy API wrapper."""
+    reprs = model.encode(loader)
     print(f"FinJEPA representations: {reprs.shape}")
     return reprs

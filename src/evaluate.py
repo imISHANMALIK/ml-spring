@@ -207,33 +207,22 @@ def probe_layerwise(model_name: str,
 
 def evaluate_layerwise_comparison(finjepa_model,
                                   patchtst_model,
-                                  val_patches:   np.ndarray,
-                                  test_patches:  np.ndarray,
+                                  val_loader,
+                                  test_loader,
                                   val_labels:    np.ndarray,
-                                  test_labels:   np.ndarray,
-                                  context_len:   int = 12) -> dict:
-    """Run layer-wise probing for FinJEPA and PatchTST and return results.
-
-    The two models expose identical interfaces:
-        model.encode_layerwise(patches) → list of 6 (n_windows, d_model) arrays
-
-    This function extracts layerwise representations for val and test,
-    then calls probe_layerwise() for each model.
-
-    Returns:
-        dict with keys 'FinJEPA' and 'PatchTST', each a list of layer dicts.
-    """
+                                  test_labels:   np.ndarray) -> dict:
+    """Run layer-wise probing for FinJEPA and PatchTST and return results."""
     print("\n" + "="*60)
     print("LAYER-WISE PROBING EVALUATION")
     print("="*60)
 
     print("\nExtracting FinJEPA layerwise representations...")
-    fj_val  = finjepa_model.encode_layerwise(val_patches)
-    fj_test = finjepa_model.encode_layerwise(test_patches)
+    fj_val  = finjepa_model.encode_layerwise(val_loader)
+    fj_test = finjepa_model.encode_layerwise(test_loader)
 
     print("\nExtracting PatchTST layerwise representations...")
-    pt_val  = patchtst_model.encode_layerwise(val_patches, context_len=context_len)
-    pt_test = patchtst_model.encode_layerwise(test_patches, context_len=context_len)
+    pt_val  = patchtst_model.encode_layerwise(val_loader)
+    pt_test = patchtst_model.encode_layerwise(test_loader)
 
     fj_results = probe_layerwise('FinJEPA',  fj_val,  fj_test,  val_labels, test_labels)
     pt_results = probe_layerwise('PatchTST', pt_val,  pt_test,  val_labels, test_labels)

@@ -199,17 +199,8 @@ class PatchTSTModel:
             n_heads=n_heads, n_layers=n_layers, mask_ratio=mask_ratio
         ).to(self.device)
 
-    def fit(self, train_patches, n_epochs=200, lr=1e-4,
-            batch_size=32, context_len=12):
+    def fit(self, train_loader, n_epochs=200, lr=1e-4):
         """Pretrain PatchTST with masked patch reconstruction."""
-        n = len(train_patches)
-        windows = np.array([train_patches[i:i+context_len]
-                            for i in range(n - context_len + 1)])
-        print(f"PatchTST training data: {windows.shape}")
-
-        loader = DataLoader(TensorDataset(torch.FloatTensor(windows)),
-                            batch_size=batch_size, shuffle=True, drop_last=True)
-
         optimizer = torch.optim.AdamW(
             self.encoder.parameters(), lr=lr, weight_decay=1e-4
         )
@@ -220,7 +211,10 @@ class PatchTSTModel:
         self.encoder.train()
         for epoch in range(n_epochs):
             losses = []
-            for (batch_x,) in loader:
+            for batch_x in train_loader:
+                # If loader yields (batch,), extract just batch
+                if isinstance(batch_x, (list, tuple)):
+                    batch_x = batch_x[0]
                 batch_x = batch_x.to(self.device)
                 loss, _, _ = self.encoder.forward_pretrain(batch_x)
                 optimizer.zero_grad()
@@ -237,43 +231,26 @@ class PatchTSTModel:
         print("PatchTST pretraining complete.")
 
     @torch.no_grad()
-    def encode(self, patches, context_len=12, batch_size=64):
+    def encode(self, loader):
         """Final-layer pooled representations. Returns (n_windows, d_model)."""
         self.encoder.eval()
-        n = len(patches)
-        windows = np.array([patches[i:i+context_len]
-                            for i in range(n - context_len + 1)])
-        loader = DataLoader(TensorDataset(torch.FloatTensor(windows)),
-                            batch_size=batch_size, shuffle=False)
-
         reprs = []
-        for (x,) in loader:
-            reprs.append(self.encoder.get_representations(x.to(self.device))
-                         .cpu().numpy())
+        for batch_x in loader:
+            if isinstance(batch_x, (list, tuple)):
+                batch_x = batch_x[0]
+            reprs.append(self.encoder.get_representations(batch_x.to(self.device)).cpu().numpy())
         return np.concatenate(reprs, axis=0)
 
     @torch.no_grad()
-    def encode_layerwise(self, patches, context_len=12, batch_size=64):
-        """Extract per-layer global-average-pooled representations.
-
-        Returns: list of n_layers np.arrays, each (n_windows, d_model).
-        Layer index 0 → Layer 1, ..., index 5 → Layer 6.
-
-        Uses the same global-average-pool convention as FinJEPAModel so
-        probe results are directly comparable.
-        """
+    def encode_layerwise(self, loader):
+        """Extract per-layer global-average-pooled representations."""
         self.encoder.eval()
-        n = len(patches)
-        windows = np.array([patches[i:i+context_len]
-                            for i in range(n - context_len + 1)])
-        loader = DataLoader(TensorDataset(torch.FloatTensor(windows)),
-                            batch_size=batch_size, shuffle=False)
-
         layer_buckets = [[] for _ in range(self.n_layers)]
 
-        for (x,) in loader:
-            x = x.to(self.device)
-            # hidden_states[i]: (B, context_len, d_model) at layer i+1
+        for batch_x in loader:
+            if isinstance(batch_x, (list, tuple)):
+                batch_x = batch_x[0]
+            x = batch_x.to(self.device)
             hidden_states = self.encoder.forward_layerwise(x)
             for i, h in enumerate(hidden_states):
                 layer_buckets[i].append(h.mean(dim=1).cpu().numpy())
@@ -293,20 +270,19 @@ class PatchTSTModel:
 # High-level API
 # ─────────────────────────────────────────────
 
-def train_patchtst(train_patches, d_model=384, n_epochs=200, device='auto'):
+def train_patchtst(train_loader, d_model=384, n_epochs=200, device='auto'):
     model = PatchTSTModel(
-        patch_size=train_patches.shape[1],
+        patch_size=20,
         d_model=d_model, n_heads=6, n_layers=6,
         mask_ratio=0.4, device=device
     )
-    model.fit(train_patches, n_epochs=n_epochs,
-              batch_size=min(32, len(train_patches) // 2))
+    model.fit(train_loader, n_epochs=n_epochs)
     return model
 
 
-def extract_patchtst_representations(model, patches, context_len=12):
+def extract_patchtst_representations(model, loader, device='auto'):
     """Legacy API — final-layer pooled representations."""
-    reprs = model.encode(patches, context_len=context_len)
+    reprs = model.encode(loader)
     print(f"PatchTST representations: {reprs.shape}")
     return reprs
 

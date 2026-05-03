@@ -303,30 +303,13 @@ class TS2VecModel:
 # ─────────────────────────────────────────────
 # Adapting TS2Vec to patch-level representations
 # ─────────────────────────────────────────────
-def train_ts2vec(train_patches, output_dims=384, n_epochs=200, device='auto'):
-    """Train TS2Vec on training patches.
-    
-    Args:
-        train_patches: np.array (n_patches, patch_size=20)
-        
-    Returns:
-        model: trained TS2VecModel
-    """
-    # TS2Vec operates on sequences, so we create sliding windows of patches
-    # Each sample: (context_len * patch_size) time steps
-    # But for simplicity, we flatten patches → per-day returns and train on sequences
-    
-    patch_size = train_patches.shape[1]
-    n_patches = len(train_patches)
-    
-    # Create overlapping sequences of patches (12 patches = 240 days each)
-    context_len = 12
+def train_ts2vec(train_loader, output_dims=384, n_epochs=200, device='auto'):
     sequences = []
-    for i in range(n_patches - context_len + 1):
-        seq = train_patches[i:i+context_len].flatten()  # (240,)
+    for batch in train_loader:
+        seq = batch.view(batch.shape[0], -1).numpy()
         sequences.append(seq)
     
-    train_data = np.array(sequences)  # (n_samples, 240)
+    train_data = np.concatenate(sequences, axis=0)
     print(f"TS2Vec training data: {train_data.shape}")
     
     model = TS2VecModel(
@@ -342,34 +325,20 @@ def train_ts2vec(train_patches, output_dims=384, n_epochs=200, device='auto'):
     return model
 
 
-def extract_ts2vec_representations(model, patches, context_len=12, patch_size=20):
-    """Extract patch-level representations from TS2Vec.
-    
-    Strategy: encode sliding windows, then avg-pool per 20-day patch region.
-    
-    Args:
-        model: trained TS2VecModel
-        patches: np.array (n_patches, patch_size)
-        
-    Returns:
-        representations: np.array (n_valid_patches, output_dims)
-        — n_valid_patches = n_patches - context_len + 1 (only patches with full context)
-    """
-    # Create sequences
-    n_patches = len(patches)
+def extract_ts2vec_representations(model, loader, device='auto'):
     sequences = []
-    for i in range(n_patches - context_len + 1):
-        seq = patches[i:i+context_len].flatten()
+    for batch in loader:
+        seq = batch.view(batch.shape[0], -1).numpy()
         sequences.append(seq)
     
-    data = np.array(sequences)
+    data = np.concatenate(sequences, axis=0)
     
     # Encode
     all_reprs = model.encode(data)  # (n_samples, seq_len, output_dims)
     
     # Pool: take the representation of the LAST patch_size time steps
     # This gives us the representation for the most recent patch
-    last_patch_reprs = all_reprs[:, -patch_size:, :].mean(axis=1)  # (n_samples, output_dims)
+    last_patch_reprs = all_reprs[:, -20:, :].mean(axis=1)  # (n_samples, output_dims)
     
     print(f"TS2Vec representations: {last_patch_reprs.shape}")
     return last_patch_reprs
