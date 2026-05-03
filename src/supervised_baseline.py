@@ -147,9 +147,7 @@ def train_supervised(model, train_dataset, val_dataset,
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     
     # Class weights for imbalanced regimes
-    labels = []
-    for _, label in train_dataset:
-        labels.append(label.item())
+    labels = [train_dataset[i][1].item() for i in range(len(train_dataset))]
     
     n_classes = model.classifier[-1].out_features
     counts = np.bincount(labels, minlength=n_classes)

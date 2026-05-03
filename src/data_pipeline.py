@@ -86,6 +86,8 @@ class DensePatchSequenceDataset(Dataset):
         return self.n_samples
     
     def __getitem__(self, idx):
+        if idx >= self.n_samples or idx < 0:
+            raise IndexError()
         window = self.returns[idx : idx + self.window_size]
         patches = window.reshape(self.total_patches, self.patch_size)
         
@@ -108,6 +110,8 @@ class DenseRegimeDataset(Dataset):
         return self.n_samples
     
     def __getitem__(self, idx):
+        if idx >= self.n_samples or idx < 0:
+            raise IndexError()
         window = self.returns[idx : idx + self.window_size]
         context = window.reshape(self.context_len, self.patch_size)
         label = self.labels[idx + self.window_size - 1]
