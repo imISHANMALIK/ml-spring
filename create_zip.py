@@ -8,6 +8,7 @@ def create_zip():
                 zipf.write(os.path.join(root, file))
         zipf.write('run_all.py')
         zipf.write('paper_figures.py')
+        zipf.write('sweep_tau.py')
 
 if __name__ == '__main__':
     create_zip()

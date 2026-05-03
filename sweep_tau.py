@@ -79,8 +79,9 @@ def main():
         
         res, _ = evaluate_all_models(representations, labels_dict, save_dir=Path('results/sweep'))
         
-        f1_score = res[name]['regime_f1_macro']
-        sil_score = res[name]['silhouette']
+        model_result = next(r for r in res if r['model'] == name)
+        f1_score = model_result['regime_f1']
+        sil_score = model_result['silhouette']
         
         sweep_results.append({
             "Configuration": name,
