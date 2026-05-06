@@ -106,7 +106,19 @@ MODEL_ORDER = ["Random", "Supervised", "TS2Vec", "PatchTST", "FinJEPA"]
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def load_sp500():
-    df = pd.read_csv(RESULTS / "sp500_raw.csv", parse_dates=["Date"])
+    # Try several candidate locations for the raw CSV
+    candidates = [
+        RESULTS / "sp500_raw.csv",
+        RESULTS / "raw_data" / "^GSPC_raw.csv",
+        RESULTS / "raw_data" / "sp500_raw.csv",
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        raise FileNotFoundError(
+            f"Cannot find S&P 500 raw CSV. Looked in: {[str(p) for p in candidates]}"
+        )
+    print(f"[load] S&P 500 data from {path.name}")
+    df = pd.read_csv(path, parse_dates=["Date"])
     df = df.sort_values("Date").reset_index(drop=True)
     df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
     df = df.dropna().reset_index(drop=True)
@@ -114,22 +126,81 @@ def load_sp500():
 
 
 def load_labels():
+    """Load HMM labels from .npy files, or generate them on-the-fly if missing."""
+    patch_files = [
+        LABELS_DIR / "hmm_patch_labels_train.npy",
+        LABELS_DIR / "hmm_patch_labels_val.npy",
+        LABELS_DIR / "hmm_patch_labels_test.npy",
+    ]
+    daily_files = [
+        LABELS_DIR / "hmm_daily_labels_train.npy",
+        LABELS_DIR / "hmm_daily_labels_val.npy",
+        LABELS_DIR / "hmm_daily_labels_test.npy",
+    ]
+    probs_files = [
+        LABELS_DIR / "hmm_daily_probs_train.npy",
+        LABELS_DIR / "hmm_daily_probs_val.npy",
+        LABELS_DIR / "hmm_daily_probs_test.npy",
+    ]
+
+    if all(p.exists() for p in patch_files + daily_files + probs_files):
+        print("[load] HMM label .npy files found")
+        return {
+            "patch": {
+                "train": np.load(LABELS_DIR / "hmm_patch_labels_train.npy"),
+                "val":   np.load(LABELS_DIR / "hmm_patch_labels_val.npy"),
+                "test":  np.load(LABELS_DIR / "hmm_patch_labels_test.npy"),
+            },
+            "daily": {
+                "train": np.load(LABELS_DIR / "hmm_daily_labels_train.npy"),
+                "val":   np.load(LABELS_DIR / "hmm_daily_labels_val.npy"),
+                "test":  np.load(LABELS_DIR / "hmm_daily_labels_test.npy"),
+            },
+            "probs": {
+                "train": np.load(LABELS_DIR / "hmm_daily_probs_train.npy"),
+                "val":   np.load(LABELS_DIR / "hmm_daily_probs_val.npy"),
+                "test":  np.load(LABELS_DIR / "hmm_daily_probs_test.npy"),
+            },
+        }
+
+    # Generate labels on-the-fly using the same pipeline as run_all.py
+    print("[warn] HMM label .npy files not found — generating from pipeline (this may take ~30s)")
+    sys.path.insert(0, str(ROOT / "src"))
+    from data_pipeline import load_and_preprocess, PATCH_SIZE, CONTEXT_PATCHES, TARGET_PATCHES, STRIDE
+    from hmm_labels import RegimeLabeler
+
+    data    = load_and_preprocess()
+    labeler = RegimeLabeler(n_states=3)
+    labeler.fit(data['daily_returns']['train']['log_return'].values)
+
+    daily_labels = {}
+    daily_probs  = {}
+    for split in ['train', 'val', 'test']:
+        arr = data['daily_returns'][split]['log_return'].values
+        daily_labels[split] = labeler.predict(arr)
+        daily_probs[split]  = labeler.predict_proba(arr)
+
+    # Patch labels: label = last day of context window (240 days), stride=5
+    def get_patch_labels(daily_arr, stride=STRIDE):
+        total_window = (CONTEXT_PATCHES + TARGET_PATCHES) * PATCH_SIZE  # 320
+        context_end  = CONTEXT_PATCHES * PATCH_SIZE                      # 240
+        n = max(0, (len(daily_arr) - total_window) // stride + 1)
+        return np.array([daily_arr[i * stride + context_end - 1] for i in range(n)])
+
+    patch_labels = {split: get_patch_labels(daily_labels[split]) for split in ['train', 'val', 'test']}
+
+    # Save for next time
+    LABELS_DIR.mkdir(parents=True, exist_ok=True)
+    for split in ['train', 'val', 'test']:
+        np.save(LABELS_DIR / f"hmm_patch_labels_{split}.npy",  patch_labels[split])
+        np.save(LABELS_DIR / f"hmm_daily_labels_{split}.npy",  daily_labels[split])
+        np.save(LABELS_DIR / f"hmm_daily_probs_{split}.npy",   daily_probs[split])
+    print(f"[save] HMM labels saved to {LABELS_DIR}")
+
     return {
-        "patch": {
-            "train": np.load(LABELS_DIR / "hmm_patch_labels_train.npy"),
-            "val":   np.load(LABELS_DIR / "hmm_patch_labels_val.npy"),
-            "test":  np.load(LABELS_DIR / "hmm_patch_labels_test.npy"),
-        },
-        "daily": {
-            "train": np.load(LABELS_DIR / "hmm_daily_labels_train.npy"),
-            "val":   np.load(LABELS_DIR / "hmm_daily_labels_val.npy"),
-            "test":  np.load(LABELS_DIR / "hmm_daily_labels_test.npy"),
-        },
-        "probs": {
-            "train": np.load(LABELS_DIR / "hmm_daily_probs_train.npy"),
-            "val":   np.load(LABELS_DIR / "hmm_daily_probs_val.npy"),
-            "test":  np.load(LABELS_DIR / "hmm_daily_probs_test.npy"),
-        },
+        "patch": patch_labels,
+        "daily": daily_labels,
+        "probs":  daily_probs,
     }
 
 
@@ -647,10 +718,10 @@ def fig08_confusion_matrices(results_df, labels, synthetic):
             return cm
 
         models_data = {
-            "FinJEPA":    _make_cm([0.82, 0.75]),
-            "Supervised": _make_cm([0.75, 0.68]),
-            "TS2Vec":     _make_cm([0.66, 0.58]),
-            "PatchTST":   _make_cm([0.58, 0.52]),
+            "FinJEPA":    _make_cm([0.82, 0.75, 0.80]),
+            "Supervised": _make_cm([0.75, 0.68, 0.72]),
+            "TS2Vec":     _make_cm([0.66, 0.58, 0.63]),
+            "PatchTST":   _make_cm([0.58, 0.52, 0.55]),
         }
 
     model_list = [m for m in MODEL_ORDER[1:] if m in models_data]
@@ -1077,7 +1148,14 @@ def fig16_radar_chart(results_df, synthetic):
         return {k: (v - mn) / (mx - mn) for k, v in vals_dict.items()}
 
     normed = {c: _norm(raw[c]) for c in metric_cols}
-    labels_radar = ["Macro F1", "Accuracy", "Silhouette", "Sharpe"]
+    # Map column names → display labels for whatever metrics are present
+    col_label_map = {
+        "Regime F1": "Macro F1",
+        "Regime Accuracy": "Accuracy",
+        "Silhouette": "Silhouette",
+        "Sharpe": "Sharpe",
+    }
+    labels_radar = [col_label_map.get(c, c) for c in metric_cols]
     N  = len(labels_radar)
     angles = np.linspace(0, 2*np.pi, N, endpoint=False).tolist()
     angles += angles[:1]

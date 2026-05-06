@@ -1,18 +1,19 @@
 \begin{table}[t]
 \centering
 \small
-\caption{Market Regime Detection on S\&P~500 (2022--2024 test period). All SSL models use identical 6-layer Transformer encoders. Supervised baseline uses HMM labels during training; all others are self-supervised. \textit{(synthetic placeholder)}}
+\caption{Market Regime Detection on S\&P~500 (2022--2024 test period). All SSL models use identical 6-layer Transformer encoders. Supervised baseline uses HMM labels during training; all others are self-supervised.}
 \label{tab:main_results}
 \begin{tabular}{lcccccc}
 \toprule
 Model & Labels? & Macro F1 $\uparrow$ & Accuracy $\uparrow$ & Silhouette $\uparrow$ & Sharpe $\uparrow$ & MSE $\downarrow$ \\
 \midrule
-  Random & No & 0.3312 & 0.3514 & --- & --- & --- \\
-  Supervised & \checkmark & 0.7123 & 0.7297 & 0.4312 & 1.42 & 3.21e{-}4 \\
-  TS2Vec & $\times$ & 0.6241 & 0.6486 & 0.3714 & 0.98 & 4.18e{-}4 \\
+  Random & No & 0.2843 & --- & --- & --- & --- \\
+  Supervised & \checkmark & 0.2730 & --- & -0.0026 & --- & --- \\
+  TS2Vec & $\times$ & 0.2852 & --- & 0.0698 & --- & --- \\
 \midrule
-  PatchTST & $\times$ & 0.5583 & 0.5676 & 0.2981 & 0.71 & 4.89e{-}4 \\
-  \textbf{FinJEPA} & $\times$ & \textbf{0.7841} & \textbf{0.7838} & \textbf{0.5127} & \textbf{1.63} & \textbf{2.87e{-}4} \\
+  PatchTST & $\times$ & 0.2199 & --- & -0.0382 & --- & --- \\
+  \textbf{FinJEPA} & $\times$ & \textbf{0.4512} & \textbf{---} & \textbf{-0.0364} & \textbf{---} & \textbf{---} \\
+  FinJEPA (fixed τ) & $\times$ & 0.5067 & --- & -0.0659 & --- & --- \\
 \bottomrule
 \end{tabular}
 \end{table}

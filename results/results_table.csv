@@ -1,0 +1,7 @@
+Model,Regime F1,Forecast MSE,Sharpe,Silhouette,Labels used?
+Random,0.2843,—,0.00,—,No
+Supervised,0.2730,—,—,-0.0026,Yes
+TS2Vec,0.2852,—,—,0.0698,No
+PatchTST,0.2199,—,—,-0.0382,No
+FinJEPA,0.4512,—,—,-0.0364,No
+FinJEPA (fixed τ),0.5067,—,—,-0.0659,No
