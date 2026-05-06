@@ -80,8 +80,8 @@ class RegimeLabeler:
             std = np.sqrt(var)
             print(f"  {state_names[new_idx]:>10}: mean={mean:+.6f}, "
                   f"std={std:.6f}, "
-                  f"annualized_mean={mean*252:.2%}, "
-                  f"annualized_vol={std*np.sqrt(252):.2%}")
+                  f"z_mean={mean:+.4f}, "
+                  f"z_std={std:.4f}")
         
         print(f"\nTransition matrix (sorted):")
         sorted_trans = self.hmm.transmat_[self.state_order][:, self.state_order]

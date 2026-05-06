@@ -69,7 +69,8 @@ def evaluate_model(model_name, val_reprs, test_reprs,
 
     probe = LogisticRegression(
         max_iter=2000, C=1.0,
-        solver='lbfgs', random_state=42
+        solver='lbfgs', random_state=42,
+        class_weight='balanced'
     )
     probe.fit(val_scaled, val_labels)
     test_preds = probe.predict(test_scaled)
@@ -191,7 +192,8 @@ def probe_layerwise(model_name: str,
 
         probe = LogisticRegression(
             max_iter=2000, C=1.0,
-            solver='lbfgs', random_state=42
+            solver='lbfgs', random_state=42,
+            class_weight='balanced'
         )
         probe.fit(val_scaled, val_y)
         preds = probe.predict(test_scaled)
@@ -286,7 +288,9 @@ def plot_umap_comparison(all_results, test_labels, save_path=None):
     for ax, result in zip(axes, models_with_umap):
         embed  = result['umap_embedding']
         n_repr = len(embed)
-        labels = test_labels[-n_repr:]
+        # Use per-model labels stored in result if available, else fall back
+        model_test_labels = result.get('test_labels', test_labels)
+        labels = model_test_labels[-n_repr:]
         for regime in [0, 1, 2]:
             mask = labels == regime
             if mask.any():
