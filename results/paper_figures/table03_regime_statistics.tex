@@ -1,15 +1,17 @@
-\begin{table}[t]
+\begin{table*}[t]
 \centering
 \small
-\caption{HMM Regime Statistics — S\&P~500 (2000--2024). Returns are daily log returns. Annualised figures assume 252 trading days.}
+\setlength{\tabcolsep}{10pt}
+\renewcommand{\arraystretch}{1.1}
+\caption{HMM Regime Statistics --- S\&P~500 (2000--2024). Returns are daily log returns. Annualised figures assume 252 trading days.}
 \label{tab:regime_stats}
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccc}
 \toprule
-Regime & Days (\%) & Ann.\ Mean (\%) & Ann.\ Vol (\%) & Skewness \\
+Regime & Days & Share (\%) & Ann.\ Mean (\%) & Ann.\ Vol (\%) & Skewness \\
 \midrule
-  Bear & 1545 (25.6\%) & +6.93 & 16.36 & -0.202 \\
-  Sideways & 2121 (35.1\%) & +2.11 & 20.81 & -0.819 \\
-  Bull & 2370 (39.3\%) & +6.22 & 20.53 & -0.010 \\
+Bear      & 1545 & 25.6 & $+6.93$ & 16.36 & $-0.202$ \\
+Sideways  & 2121 & 35.1 & $+2.11$ & 20.81 & $-0.819$ \\
+Bull      & 2370 & 39.3 & $+6.22$ & 20.53 & $-0.010$ \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
