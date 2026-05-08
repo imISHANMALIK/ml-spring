@@ -10,24 +10,25 @@ import sys
 import os
 from pathlib import Path
 import pandas as pd
+
+# Must set path BEFORE importing project modules
+src_dir = Path(__file__).parent / "src" if "__file__" in dir() else Path("src")
+sys.path.insert(0, str(src_dir))
+
+import data_pipeline
 from data_pipeline import load_and_preprocess, create_dataloaders, DenseRegimeDataset
 from hmm_labels import RegimeLabeler, export_labels
 from supervised_baseline import SupervisedBaseline, train_supervised, extract_representations
 from ts2vec_baseline import train_ts2vec, extract_ts2vec_representations
 from patchtst_baseline import train_patchtst, extract_patchtst_representations
-from finjepa import train_finjepa, extract_finjepa_representations
-from finjepa import train_finjepa, FinJEPAModel
-from evaluate import evaluate_all_models
+from finjepa import train_finjepa, extract_finjepa_representations, FinJEPAModel
+from evaluate import (evaluate_all_models, evaluate_model, evaluate_random_baseline,
+                      generate_results_table, plot_umap_comparison, plot_confusion_matrices,
+                      evaluate_layerwise_comparison)
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, confusion_matrix, silhouette_score
-from evaluate import evaluate_model, evaluate_random_baseline, generate_results_table, plot_umap_comparison, plot_confusion_matrices
-from evaluate import evaluate_layerwise_comparison
-
 from plot_emergence import plot_emergence
-
-src_dir = Path(__file__).parent / "src" if "__file__" in dir() else Path("src")
-sys.path.insert(0, str(src_dir))
 
 CONFIG = {
     'patch_size': 20,
@@ -410,6 +411,7 @@ def main():
     )
     fig.savefig(results_dir / "emergence_plot.png", dpi=200, bbox_inches='tight', facecolor="#FFFBF5")
 
+    # Save data for paper_figures.py
     np.savez(
         results_dir / "all_representations.npz",
         sup_val=sup_val_reprs, sup_test=sup_test_reprs,
@@ -417,6 +419,14 @@ def main():
         patchtst_val=patchtst_val_reprs, patchtst_test=patchtst_test_reprs,
         finjepa_val=finjepa_val_reprs, finjepa_test=finjepa_test_reprs,
     )
+
+    # Save confusion matrices for paper_figures.py
+    cm_dict = {}
+    for r in all_results:
+        if 'confusion_matrix' in r:
+            cm_dict[f"{r['model'].lower()}_cm"] = r['confusion_matrix']
+    np.savez(results_dir / "confusion_matrices.npz", **cm_dict)
+
     results_df.to_csv(results_dir / "results_table.csv", index=False)
 
     print("\n✅ Done!")
